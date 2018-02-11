@@ -129,11 +129,6 @@ void loop() {
         counter--;
     }
   }
-  //else if (A_S == ON && currentMillis - shortPreviousMillis >= shortInterval){
-  //    shortPreviousMillis = currentMillis;
-  //    SetPOM();
-  // }
-   
 }
 
 void ButtonAction(int button, int *state, int* lastState, int* bpCounter){
@@ -148,12 +143,18 @@ void ButtonAction(int button, int *state, int* lastState, int* bpCounter){
           counter = pomodoroLength;
           sprintf(tempString, "%4d", counter);
           s7sSendStringI2C(tempString);
-          SetDecimals();
           counter--;
-          previousMillis = millis();
-          shortPreviousMillis = previousMillis;
-          flashPreviousMillis = previousMillis;
         }
+        else{
+          counter2++;
+          sprintf(tempString, "%4d", counter2);
+          s7sSendStringI2C(tempString);
+          counter2--;
+        }
+        previousMillis = millis();
+        shortPreviousMillis = previousMillis;
+        flashPreviousMillis = previousMillis;  
+        SetDecimals();
       }
       Serial.println(A_S);
     } 
