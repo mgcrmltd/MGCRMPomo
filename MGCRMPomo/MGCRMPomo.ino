@@ -1,25 +1,23 @@
 #include <Wire.h> // Include the Arduino SPI library
 
-// this constant won't change:
 const int  button0Pin = 8;
-// the pin that the pushbutton is attached to
 const int redPin = 10;
 const int greenPin = 11;
-// the pin that the LED is attached to
 
-// Variables will change:
 int buttonPushCounter0 = 0;   // counter for the number of button presses
 int buttonState0 = 0;         // current state of the button
 int lastButtonState0 = 0;     // previous state of the button
 
 enum AppState {ON, OFF};
-
+enum BlinkState {SHOWING, HIDDEN};
 enum PomState {POM, BRK};
 
 AppState A_S = ON;
 PomState currentPom = POM;
 PomState prevPom = POM;
+BlinkState currentBlink = SHOWING;
 
+//The 7seg counter
 const byte s7sAddress = 0x71;
 
 int pomodoroLength = 25;
@@ -35,8 +33,10 @@ char tempString[10];  // Will be used with sprintf to create strings
 
 unsigned long previousMillis = 0;
 unsigned long shortPreviousMillis = 0;
+unsigned long flashPreviousMillis = 0;
 const long interval = 1000;
 const long shortInterval = 750;
+const int flashInterval = 500;
 
 void SetLeds()
 {
@@ -68,25 +68,13 @@ void setup() {
   pinMode(greenPin, OUTPUT);
   SetLeds();
   
-  // initialize serial communication:
   Serial.begin(9600);
-   Wire.begin();  // Initialize hardware I2C pins
-
-   // Clear the display, and then turn on all segments and decimals
-  clearDisplayI2C();  // Clears display, resets cursor
+  Wire.begin();  // Initialize hardware I2C pins
+  clearDisplayI2C(); 
   sprintf(tempString, "%4d", counter);
-  
-
-  // Custom function to send four bytes via I2C
-  //  The I2C.write function only allows sending of a single
-  //  byte at a time.
-  s7sSendStringI2C("25  ");
-  delay(1500);
-  clearDisplayI2C();
-  delay(1000);
-  s7sSendStringI2C(" 5  ");
-  delay(1000);
-  clearDisplayI2C();
+  s7sSendStringI2C(tempString);
+  SetDecimals();
+  counter--;
 }
 
 void loop() {
@@ -95,8 +83,13 @@ void loop() {
   ButtonAction(0, &buttonState0, &lastButtonState0, &buttonPushCounter0);
 
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    // save the last time you blinked the LED
+  if (A_S == OFF && (currentMillis - flashPreviousMillis >= flashInterval)){
+      flashPreviousMillis = currentMillis;
+      if(A_S == OFF){
+        BlinkDisplay();
+      }
+   }
+  else if (A_S == ON && currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
     if(counter > 0)
     {
@@ -104,6 +97,7 @@ void loop() {
       sprintf(tempString, "%4d", counter);
       counter--;
       s7sSendStringI2C(tempString);
+      SetPOM();
     }
     else if(counter2 > 0){
       currentPom = BRK;
@@ -111,8 +105,9 @@ void loop() {
       sprintf(tempString, "%4d", counter2);
       counter2--;
       s7sSendStringI2C(tempString);
+      SetPOM();
     }
-    else
+    else if (A_S == ON)
     {
       clearDisplayI2C(); 
       delay(50);
@@ -120,14 +115,7 @@ void loop() {
         if(currentPomodoro > pomodoros){
           currentPomodoro = 1;
         }
-        if(currentPomodoro == 1)
-          setDecimalsI2C(0b000001);
-        else if(currentPomodoro == 2)
-          setDecimalsI2C(0b000011);
-        else if(currentPomodoro == 3)
-          setDecimalsI2C(0b000111);
-        else if(currentPomodoro == 4)
-          setDecimalsI2C(0b001111);
+        SetDecimals();
         counter = pomodoroLength;
         currentPom = POM;
         SetPOM();
@@ -141,45 +129,66 @@ void loop() {
         counter--;
     }
   }
-  if (currentMillis - shortPreviousMillis >= shortInterval){
-      shortPreviousMillis = currentMillis;
-      SetPOM();
-   }
+  //else if (A_S == ON && currentMillis - shortPreviousMillis >= shortInterval){
+  //    shortPreviousMillis = currentMillis;
+  //    SetPOM();
+  // }
+   
 }
 
-void ButtonAction(int button, int *state, int* lastState, int* counter){
-  // compare the buttonState to its previous state
+void ButtonAction(int button, int *state, int* lastState, int* bpCounter){
   if ((int)*state != (int)*lastState) {
-      //Serial.print("Button ");
-      //Serial.print(button);
-      //Serial.print(": ");
-    // if the state has changed, increment the counter
-    if ((int)*state == HIGH) {
-      //Serial.println("HIGH !");
-      // if the current state is HIGH then the button went from off to on:
-      *counter = *counter + 1;
-      //Serial.println("on");
-      //Serial.print("number of button pushes: ");
-      //Serial.println((int)*counter);
+    if ((int)*state == HIGH) { //We're only checking for the press. Don't care about the release
+      *bpCounter = *bpCounter + 1;
       if(A_S == ON)
         A_S = OFF;
-      else
+      else {
         A_S = ON;
+        if(currentPom == POM){
+          counter = pomodoroLength;
+          sprintf(tempString, "%4d", counter);
+          s7sSendStringI2C(tempString);
+          SetDecimals();
+          counter--;
+          previousMillis = millis();
+          shortPreviousMillis = previousMillis;
+          flashPreviousMillis = previousMillis;
+        }
+      }
       Serial.println(A_S);
-    } else {
-      // if the current state is LOW then the button went from on to off:
-      //Serial.println("off");
-    }
+    } 
     // Delay a little bit to avoid bouncing
     delay(50);
-    
   }
-  
-  // save the current state as the last state, for next time through the loop
   *lastState = *state;
 }
 
+void BlinkDisplay(){
+  if(currentBlink == SHOWING){
+    clearDisplayI2C(); 
+    currentBlink = HIDDEN;
+  }
+  else{
+      if(currentPom == POM)
+        sprintf(tempString, "%4d", counter + 1);
+      else
+        sprintf(tempString, "%4d", counter2 + 1);
+      s7sSendStringI2C(tempString);
+      SetDecimals();
+      currentBlink = SHOWING;
+  }
+}
 
+void SetDecimals(){
+  if(currentPomodoro == 1)
+    setDecimalsI2C(0b000001);
+  else if(currentPomodoro == 2)
+    setDecimalsI2C(0b000011);
+  else if(currentPomodoro == 3)
+    setDecimalsI2C(0b000111);
+  else if(currentPomodoro == 4)
+    setDecimalsI2C(0b001111);
+}
 
 void s7sSendStringI2C(String toSend)
 {
