@@ -1,8 +1,8 @@
 #include <Wire.h> // Include the Arduino SPI library
 
-const int  button0Pin = 8;
-const int redPin = 10;
-const int greenPin = 11;
+const int  button0Pin = 14;
+const int redPin = 12;
+const int greenPin = 13;
 
 int buttonPushCounter0 = 0;   // counter for the number of button presses
 int buttonState0 = 0;         // current state of the button
@@ -69,7 +69,7 @@ void setup() {
   SetLeds();
   
   Serial.begin(9600);
-  Wire.begin();  // Initialize hardware I2C pins
+  Wire.begin(4,5);  // Initialize hardware I2C pins
   clearDisplayI2C(); 
   sprintf(tempString, "%4d", counter);
   s7sSendStringI2C(tempString);
